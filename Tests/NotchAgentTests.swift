@@ -2471,6 +2471,23 @@ enum NotchAgentTests {
                         && AgentClaudeAppUsage.limits(from: samples, now: now, sessionStart: at("2026-09-23T13:40:00Z"))?
                         .windows.first?.resetsAt == at("2026-09-23T19:05:00Z"),
                      "Claude Code's first request places the session only inside the gap the readings leave")
+        // Readings hours apart leave the start anywhere between them, and the
+        // first one above zero is only the latest it can have been.
+        let slept = AgentClaudeAppUsage.samples(from: history([
+            ("2026-10-12T12:26:00Z", "o", ["fh": 2, "sd": 9]), ("2026-10-12T19:03:00Z", "o", ["fh": 4, "sd": 11])])) ?? []
+        let sleptReset = AgentClaudeAppUsage.limits(from: slept, now: at("2026-10-12T19:04:00Z"))?.windows.first?.resetsAt
+        suite.expect(sleptReset.map { abs($0.timeIntervalSince(at("2026-10-12T22:10:00Z"))) < 3_600 } == true,
+                     "a session first read after the Mac slept renews within an hour of its real time, not five hours after the wake")
+        let overnight = AgentClaudeAppUsage.samples(from: history([
+            ("2026-10-11T23:00:00Z", "o", ["fh": 0, "sd": 40]), ("2026-10-12T11:59:00Z", "o", ["fh": 29, "sd": 41])])) ?? []
+        let overnightReset = AgentClaudeAppUsage.limits(from: overnight, now: at("2026-10-12T12:32:00Z"))?.windows.first?.resetsAt
+        suite.expect(overnightReset.map { abs($0.timeIntervalSince(at("2026-10-12T15:00:00Z"))) < 3_600 } == true
+                        && overnightReset.map { $0 > at("2026-10-12T11:59:00Z") && $0 <= at("2026-10-12T16:59:00Z") } == true,
+                     "an overnight gap keeps the renewal between the reading and five hours after it")
+        let lone = AgentClaudeAppUsage.samples(from: history([("2026-10-12T19:03:00Z", "o", ["fh": 4, "sd": 11])])) ?? []
+        suite.expect(AgentClaudeAppUsage.limits(from: lone, now: at("2026-10-12T19:04:00Z"))?.windows.first?.resetsAt
+                        == at("2026-10-13T00:03:00Z"),
+                     "a file that starts with the session has nothing before it to bracket the start")
         let requests = [record(.claude, at("2026-09-23T13:55:00Z"), cost: 1), record(.claude, at("2026-09-23T18:58:00Z"), cost: 1)]
         let placed = AgentClaudeAppUsage.sessionStart(requests, samples: samples)
         let ended = at("2026-09-23T19:00:00Z")

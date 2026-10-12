@@ -120,8 +120,24 @@ enum AgentClaudeAppUsage {
         }
         let latest = history[first].date
         let earliest = first > 0 ? history[first - 1].date : latest.addingTimeInterval(-length)
-        let began = start.flatMap { $0 > earliest && $0 <= latest ? $0 : nil } ?? latest
+        let began = start.flatMap { $0 > earliest && $0 <= latest ? $0 : nil }
+            ?? unseenStart(earliest: earliest, latest: latest, bracketed: first > 0, length: length)
         return began.addingTimeInterval(length)
+    }
+
+    /// Where a session began when only the readings place it. Readings a few
+    /// minutes apart bracket it closely, so the first one above zero stands.
+    /// A longer gap means the app missed checks, with the Mac asleep or the
+    /// app closed, and the session began somewhere in it, though no more than
+    /// a session's length before the reading that still sees it. That first
+    /// reading is the latest the start can be, so it puts the renewal as late
+    /// as it can be, by hours after a long gap. The middle of the range is
+    /// still an estimate, off by up to half of it and able to fall before the
+    /// real renewal, but it halves the worst error.
+    private static func unseenStart(earliest: Date, latest: Date, bracketed: Bool, length: TimeInterval) -> Date {
+        guard bracketed, latest.timeIntervalSince(earliest) > freshness else { return latest }
+        let lower = max(earliest, latest.addingTimeInterval(-length))
+        return lower.addingTimeInterval(latest.timeIntervalSince(lower) / 2)
     }
 
     /// The first renewal after `reading`, from the last drop the history saw.
